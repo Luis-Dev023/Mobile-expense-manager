@@ -1,0 +1,512 @@
+import React, { useState } from 'react';
+import {
+  StyleSheet,
+  Text,
+  View,
+  TouchableOpacity,
+  TextInput,
+  FlatList,
+  Dimensions,
+} from 'react-native';
+import Svg, { Polyline, Line as SvgLine, Circle } from 'react-native-svg';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
+// ---------------------------------------------------------
+// Pantalla: Bienvenida / pedir nombre
+// ---------------------------------------------------------
+function PantallaBienvenida({ onContinuar }) {
+  const [nombre, setNombre] = useState('');
+
+  return (
+    <View style={[styles.container, { justifyContent: 'center' }]}>
+      <Text style={styles.bienvenidaTitulo}>¿Cómo te llamas?</Text>
+      <Text style={styles.bienvenidaSubtitulo}>
+        Usaremos tu nombre para personalizar tu inicio
+      </Text>
+
+      <TextInput
+        style={styles.input}
+        placeholder="Tu nombre"
+        placeholderTextColor="#999"
+        value={nombre}
+        onChangeText={setNombre}
+      />
+
+      <TouchableOpacity
+        style={[styles.botonGuardar, { opacity: nombre.trim() ? 1 : 0.5 }]}
+        disabled={!nombre.trim()}
+        onPress={() => onContinuar(nombre.trim())}
+      >
+        <Text style={styles.botonGuardarTexto}>Continuar</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+// ---------------------------------------------------------
+// Componente: Gráfica de línea (historial de saldo)
+// ---------------------------------------------------------
+function GraficaSaldo({ historial }) {
+  const width = SCREEN_WIDTH - 60;
+  const height = 160;
+  const padding = 10;
+
+  if (historial.length < 2) {
+    return (
+      <View style={[styles.chartCard, { height, justifyContent: 'center', alignItems: 'center' }]}>
+        <Text style={{ color: '#888' }}>Agrega movimientos para ver tu gráfica</Text>
+      </View>
+    );
+  }
+
+  const max = Math.max(...historial);
+  const min = Math.min(...historial);
+  const rango = max - min || 1;
+
+  const puntos = historial.map((valor, i) => {
+    const x = padding + (i / (historial.length - 1)) * (width - padding * 2);
+    const y = height - padding - ((valor - min) / rango) * (height - padding * 2);
+    return `${x},${y}`;
+  });
+
+  const ultimoPunto = puntos[puntos.length - 1].split(',');
+
+  return (
+    <View style={styles.chartCard}>
+      <Svg width={width} height={height}>
+        {[0.25, 0.5, 0.75].map((f) => (
+          <SvgLine
+            key={f}
+            x1={0}
+            y1={height * f}
+            x2={width}
+            y2={height * f}
+            stroke="#3D2A6B"
+            strokeWidth={1}
+          />
+        ))}
+        <Polyline
+          points={puntos.join(' ')}
+          fill="none"
+          stroke="#7C9CF2"
+          strokeWidth={3}
+          strokeLinejoin="round"
+          strokeLinecap="round"
+        />
+        <Circle cx={ultimoPunto[0]} cy={ultimoPunto[1]} r={5} fill="#7C9CF2" />
+      </Svg>
+    </View>
+  );
+}
+
+// ---------------------------------------------------------
+// Pantalla: Agregar Gasto o Ingreso
+// ---------------------------------------------------------
+function PantallaAgregar({ onGuardar, onCancelar }) {
+  const [tipo, setTipo] = useState('gasto');
+  const [descripcion, setDescripcion] = useState('');
+  const [monto, setMonto] = useState('');
+
+  const handleGuardar = () => {
+    if (!monto || isNaN(parseFloat(monto))) return;
+    onGuardar({
+      id: Date.now().toString(),
+      tipo,
+      descripcion: descripcion || (tipo === 'gasto' ? 'Gasto' : 'Ingreso'),
+      monto: parseFloat(monto),
+    });
+  };
+
+  return (
+    <View style={styles.container}>
+      <TouchableOpacity onPress={onCancelar} style={styles.flecha}>
+        <Text style={{ color: '#FFFFFF', fontSize: 18 }}>{'←'}</Text>
+      </TouchableOpacity>
+
+      <Text style={styles.titulo}>Nuevo movimiento</Text>
+
+      <View style={styles.selectorTipo}>
+        <TouchableOpacity
+          style={[styles.tipoBtn, tipo === 'gasto' && styles.tipoActivoGasto]}
+          onPress={() => setTipo('gasto')}
+        >
+          <Text style={styles.tipoTexto}>Gasto</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.tipoBtn, tipo === 'ingreso' && styles.tipoActivoIngreso]}
+          onPress={() => setTipo('ingreso')}
+        >
+          <Text style={styles.tipoTexto}>Ingreso</Text>
+        </TouchableOpacity>
+      </View>
+
+      <TextInput
+        style={styles.input}
+        placeholder="Descripción (ej: Comida rápida)"
+        placeholderTextColor="#999"
+        value={descripcion}
+        onChangeText={setDescripcion}
+      />
+
+      <TextInput
+        style={styles.input}
+        placeholder="Monto"
+        placeholderTextColor="#999"
+        keyboardType="numeric"
+        value={monto}
+        onChangeText={setMonto}
+      />
+
+      <TouchableOpacity style={styles.botonGuardar} onPress={handleGuardar}>
+        <Text style={styles.botonGuardarTexto}>Guardar</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+// ---------------------------------------------------------
+// Pantalla: Inicio
+// ---------------------------------------------------------
+function PantallaInicio({ nombre, movimientos, saldo, onIrAgregar }) {
+  const historial = [];
+  let acumulado = 0;
+  [...movimientos].reverse().forEach((m) => {
+    acumulado += m.tipo === 'ingreso' ? m.monto : -m.monto;
+    historial.push(acumulado);
+  });
+  if (historial.length === 0) historial.push(0);
+
+  return (
+    <View style={styles.container}>
+      <View style={{ width: '100%', paddingHorizontal: 25 }}>
+        <Text style={styles.saludoChico}>Hola</Text>
+        <Text style={styles.saludoNombre}>{nombre}</Text>
+
+        <TouchableOpacity style={styles.tarjetaBolsillo} onPress={onIrAgregar}>
+          <View style={styles.bolsilloHeader}>
+            <Text style={styles.bolsilloTitulo}>BOLSILLO</Text>
+            <View style={styles.puntoAzul} />
+          </View>
+          <Text
+            style={[
+              styles.bolsilloSaldo,
+              { color: saldo >= 0 ? '#5FE38B' : '#E24A4A' },
+            ]}
+          >
+            {saldo >= 0 ? '▲' : '▼'} ${Math.abs(saldo).toLocaleString('es-CO')}
+          </Text>
+          <Text style={styles.bolsilloTransacciones}>
+            {movimientos.length} transacciones
+          </Text>
+        </TouchableOpacity>
+
+        <GraficaSaldo historial={historial} />
+
+        <Text style={styles.subtituloLista}>Movimientos recientes</Text>
+      </View>
+
+      <FlatList
+        style={{ width: '100%', paddingHorizontal: 25 }}
+        data={movimientos}
+        keyExtractor={(item) => item.id}
+        renderItem={({ item }) => (
+          <View
+            style={[
+              styles.filaMovimiento,
+              { borderLeftColor: item.tipo === 'gasto' ? '#E24A4A' : '#5FE38B' },
+            ]}
+          >
+            <Text style={styles.filaDescripcion}>{item.descripcion}</Text>
+            <Text
+              style={[
+                styles.filaMonto,
+                { color: item.tipo === 'gasto' ? '#E24A4A' : '#5FE38B' },
+              ]}
+            >
+              {item.tipo === 'gasto' ? '-' : '+'}${item.monto.toLocaleString('es-CO')}
+            </Text>
+          </View>
+        )}
+        ListEmptyComponent={
+          <Text style={{ color: '#888', textAlign: 'center', marginTop: 10 }}>
+            Aún no tienes movimientos
+          </Text>
+        }
+      />
+
+      <TouchableOpacity style={styles.botonFlotante} onPress={onIrAgregar}>
+        <Text style={styles.botonFlotanteTexto}>+</Text>
+      </TouchableOpacity>
+
+      <View style={styles.navInferior}>
+        <View style={styles.navItem}>
+          <Text style={styles.navIcono}>🏠</Text>
+          <Text style={[styles.navTexto, { color: '#7C9CF2' }]}>Inicio</Text>
+        </View>
+        <View style={styles.navItem}>
+          <Text style={styles.navIcono}>📄</Text>
+          <Text style={styles.navTexto}>Transacciones</Text>
+        </View>
+        <View style={styles.navItem}>
+          <Text style={styles.navIcono}>📊</Text>
+          <Text style={styles.navTexto}>Presupuestos</Text>
+        </View>
+        <View style={styles.navItem}>
+          <Text style={styles.navIcono}>⋯</Text>
+          <Text style={styles.navTexto}>Más</Text>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+// ---------------------------------------------------------
+// App principal
+// ---------------------------------------------------------
+export default function App() {
+  const [nombre, setNombre] = useState(null);
+  const [pantalla, setPantalla] = useState('bienvenida'); // 'bienvenida' | 'inicio' | 'agregar'
+  const [movimientos, setMovimientos] = useState([
+    { id: '1', tipo: 'gasto', descripcion: 'Comida rápida', monto: 12500 },
+    { id: '2', tipo: 'ingreso', descripcion: 'Pago quincena', monto: 800000 },
+    { id: '3', tipo: 'gasto', descripcion: 'Transporte', monto: 3000 },
+  ]);
+
+  const saldo = movimientos.reduce(
+    (acc, m) => acc + (m.tipo === 'ingreso' ? m.monto : -m.monto),
+    0
+  );
+
+  const agregarMovimiento = (nuevo) => {
+    setMovimientos((prev) => [nuevo, ...prev]);
+    setPantalla('inicio');
+  };
+
+  if (pantalla === 'bienvenida') {
+    return (
+      <PantallaBienvenida
+        onContinuar={(n) => {
+          setNombre(n);
+          setPantalla('inicio');
+        }}
+      />
+    );
+  }
+
+  if (pantalla === 'agregar') {
+    return (
+      <PantallaAgregar
+        onGuardar={agregarMovimiento}
+        onCancelar={() => setPantalla('inicio')}
+      />
+    );
+  }
+
+  return (
+    <PantallaInicio
+      nombre={nombre}
+      movimientos={movimientos}
+      saldo={saldo}
+      onIrAgregar={() => setPantalla('agregar')}
+    />
+  );
+}
+
+// ---------------------------------------------------------
+// Estilos
+// ---------------------------------------------------------
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#0E0B1A',
+    alignItems: 'center',
+    paddingTop: 50,
+  },
+  bienvenidaTitulo: {
+    color: '#FFFFFF',
+    fontSize: 26,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: 8,
+    paddingHorizontal: 30,
+  },
+  bienvenidaSubtitulo: {
+    color: '#999',
+    fontSize: 14,
+    textAlign: 'center',
+    marginBottom: 30,
+    paddingHorizontal: 40,
+  },
+  input: {
+    backgroundColor: '#1C1730',
+    color: '#FFFFFF',
+    width: '85%',
+    alignSelf: 'center',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 15,
+  },
+  botonGuardar: {
+    backgroundColor: '#7C9CF2',
+    width: '85%',
+    alignSelf: 'center',
+    padding: 15,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginTop: 5,
+  },
+  botonGuardarTexto: {
+    color: '#0E0B1A',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
+  saludoChico: {
+    color: '#AAAAAA',
+    fontSize: 20,
+  },
+  saludoNombre: {
+    color: '#FFFFFF',
+    fontSize: 40,
+    fontWeight: 'bold',
+    marginBottom: 20,
+  },
+  tarjetaBolsillo: {
+    backgroundColor: '#171326',
+    borderWidth: 1.5,
+    borderColor: '#3F51E8',
+    borderRadius: 18,
+    padding: 18,
+    marginBottom: 20,
+  },
+  bolsilloHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  bolsilloTitulo: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: 'bold',
+    letterSpacing: 0.5,
+  },
+  puntoAzul: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: '#3F51E8',
+  },
+  bolsilloSaldo: {
+    fontSize: 26,
+    fontWeight: 'bold',
+    marginTop: 8,
+  },
+  bolsilloTransacciones: {
+    color: '#888',
+    fontSize: 13,
+    marginTop: 4,
+  },
+  chartCard: {
+    backgroundColor: '#171326',
+    borderRadius: 18,
+    padding: 15,
+    alignItems: 'center',
+    marginBottom: 15,
+  },
+  subtituloLista: {
+    color: '#CCCCCC',
+    fontSize: 15,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  filaMovimiento: {
+    backgroundColor: '#171326',
+    borderLeftWidth: 4,
+    borderRadius: 12,
+    padding: 15,
+    marginBottom: 10,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  filaDescripcion: {
+    color: '#FFFFFF',
+    fontSize: 14,
+  },
+  filaMonto: {
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  botonFlotante: {
+    position: 'absolute',
+    right: 20,
+    bottom: 90,
+    backgroundColor: '#F5F5F7',
+    width: 55,
+    height: 55,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 5,
+  },
+  botonFlotanteTexto: {
+    fontSize: 28,
+    color: '#0E0B1A',
+    fontWeight: 'bold',
+  },
+  navInferior: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    width: '100%',
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#1C1730',
+    backgroundColor: '#0E0B1A',
+  },
+  navItem: {
+    alignItems: 'center',
+  },
+  navIcono: {
+    fontSize: 18,
+    marginBottom: 2,
+  },
+  navTexto: {
+    color: '#888',
+    fontSize: 11,
+  },
+  flecha: {
+    position: 'absolute',
+    top: 50,
+    left: 20,
+  },
+  titulo: {
+    color: '#FFFFFF',
+    fontSize: 22,
+    fontWeight: 'bold',
+    marginBottom: 25,
+  },
+  selectorTipo: {
+    flexDirection: 'row',
+    marginBottom: 20,
+    width: '85%',
+  },
+  tipoBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+    backgroundColor: '#1C1730',
+    marginHorizontal: 5,
+    borderRadius: 12,
+  },
+  tipoActivoGasto: {
+    backgroundColor: '#E24A4A',
+  },
+  tipoActivoIngreso: {
+    backgroundColor: '#5FE38B',
+  },
+  tipoTexto: {
+    color: '#FFFFFF',
+    fontWeight: '600',
+  },
+});
