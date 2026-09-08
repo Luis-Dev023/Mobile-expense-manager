@@ -7,8 +7,9 @@ import {
   TextInput,
   FlatList,
   Dimensions,
+  Modal,
 } from 'react-native';
-import Svg, { Polyline, Line as SvgLine, Circle } from 'react-native-svg';
+import Svg, { Path, Circle } from 'react-native-svg';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -45,58 +46,157 @@ function PantallaBienvenida({ onContinuar }) {
 }
 
 // ---------------------------------------------------------
-// Componente: Gráfica de línea (historial de saldo)
+// Helpers: geometría para la gráfica de torta
 // ---------------------------------------------------------
-function GraficaSaldo({ historial }) {
-  const width = SCREEN_WIDTH - 60;
-  const height = 160;
-  const padding = 10;
+function polarAPunto(cx, cy, radio, angulo) {
+  const rad = ((angulo - 90) * Math.PI) / 180;
+  return {
+    x: cx + radio * Math.cos(rad),
+    y: cy + radio * Math.sin(rad),
+  };
+}
 
-  if (historial.length < 2) {
+function crearSector(cx, cy, radio, anguloInicio, anguloFin) {
+  const inicio = polarAPunto(cx, cy, radio, anguloFin);
+  const fin = polarAPunto(cx, cy, radio, anguloInicio);
+  const arcoGrande = anguloFin - anguloInicio <= 180 ? '0' : '1';
+  return [
+    `M ${cx} ${cy}`,
+    `L ${inicio.x} ${inicio.y}`,
+    `A ${radio} ${radio} 0 ${arcoGrande} 0 ${fin.x} ${fin.y}`,
+    'Z',
+  ].join(' ');
+}
+
+// ---------------------------------------------------------
+// Componente: Gráfica de torta (Gastos vs Ingresos)
+// ---------------------------------------------------------
+function GraficaSaldo({ movimientos }) {
+  const size = 180;
+  const radio = 75;
+  const cx = size / 2;
+  const cy = size / 2;
+
+  const totalGastos = movimientos
+    .filter((m) => m.tipo === 'gasto')
+    .reduce((acc, m) => acc + m.monto, 0);
+  const totalIngresos = movimientos
+    .filter((m) => m.tipo === 'ingreso')
+    .reduce((acc, m) => acc + m.monto, 0);
+  const total = totalGastos + totalIngresos;
+
+  if (total === 0) {
     return (
-      <View style={[styles.chartCard, { height, justifyContent: 'center', alignItems: 'center' }]}>
+      <View style={[styles.chartCard, { height: 160, justifyContent: 'center', alignItems: 'center' }]}>
         <Text style={{ color: '#888' }}>Agrega movimientos para ver tu gráfica</Text>
       </View>
     );
   }
 
-  const max = Math.max(...historial);
-  const min = Math.min(...historial);
-  const rango = max - min || 1;
-
-  const puntos = historial.map((valor, i) => {
-    const x = padding + (i / (historial.length - 1)) * (width - padding * 2);
-    const y = height - padding - ((valor - min) / rango) * (height - padding * 2);
-    return `${x},${y}`;
-  });
-
-  const ultimoPunto = puntos[puntos.length - 1].split(',');
+  const anguloGastos = (totalGastos / total) * 360;
 
   return (
-    <View style={styles.chartCard}>
-      <Svg width={width} height={height}>
-        {[0.25, 0.5, 0.75].map((f) => (
-          <SvgLine
-            key={f}
-            x1={0}
-            y1={height * f}
-            x2={width}
-            y2={height * f}
-            stroke="#3D2A6B"
-            strokeWidth={1}
-          />
-        ))}
-        <Polyline
-          points={puntos.join(' ')}
-          fill="none"
-          stroke="#7C9CF2"
-          strokeWidth={3}
-          strokeLinejoin="round"
-          strokeLinecap="round"
-        />
-        <Circle cx={ultimoPunto[0]} cy={ultimoPunto[1]} r={5} fill="#7C9CF2" />
+    <View style={[styles.chartCard, { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around' }]}>
+      <Svg width={size} height={size}>
+        {totalGastos > 0 && (
+          <Path d={crearSector(cx, cy, radio, 0, anguloGastos)} fill="#E24A4A" />
+        )}
+        {totalIngresos > 0 && (
+          <Path d={crearSector(cx, cy, radio, anguloGastos, 360)} fill="#5FE38B" />
+        )}
+        <Circle cx={cx} cy={cy} r={radio * 0.55} fill="#171326" />
       </Svg>
+
+      <View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}>
+          <View style={[styles.leyendaPunto, { backgroundColor: '#E24A4A' }]} />
+          <View>
+            <Text style={styles.leyendaTexto}>Gastos</Text>
+            <Text style={styles.leyendaMonto}>${totalGastos.toLocaleString('es-CO')}</Text>
+          </View>
+        </View>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <View style={[styles.leyendaPunto, { backgroundColor: '#5FE38B' }]} />
+          <View>
+            <Text style={styles.leyendaTexto}>Ingresos</Text>
+            <Text style={styles.leyendaMonto}>${totalIngresos.toLocaleString('es-CO')}</Text>
+          </View>
+        </View>
+      </View>
     </View>
+  );
+}
+
+// ---------------------------------------------------------
+// Modal: Editar o Eliminar movimiento
+// ---------------------------------------------------------
+function ModalEditarMovimiento({ movimiento, visible, onCerrar, onGuardar, onEliminar }) {
+  const [monto, setMonto] = useState('');
+  const [descripcion, setDescripcion] = useState('');
+
+  // Sincroniza los campos cada vez que cambia el movimiento seleccionado
+  React.useEffect(() => {
+    if (movimiento) {
+      setMonto(String(movimiento.monto));
+      setDescripcion(movimiento.descripcion);
+    }
+  }, [movimiento]);
+
+  if (!movimiento) return null;
+
+  const handleGuardar = () => {
+    const nuevoMonto = parseFloat(monto);
+    if (!monto || isNaN(nuevoMonto) || nuevoMonto <= 0) return;
+    onGuardar(movimiento.id, nuevoMonto, descripcion.trim() || movimiento.descripcion);
+  };
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCerrar}>
+      <View style={styles.modalFondo}>
+        <View style={styles.modalCaja}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitulo}>
+              {movimiento.tipo === 'gasto' ? 'Editar gasto' : 'Editar ingreso'}
+            </Text>
+            <TouchableOpacity onPress={onCerrar}>
+              <Text style={styles.modalCerrarX}>✕</Text>
+            </TouchableOpacity>
+          </View>
+
+          <Text style={styles.modalEtiqueta}>Descripción</Text>
+          <TextInput
+            style={styles.input}
+            placeholderTextColor="#999"
+            value={descripcion}
+            onChangeText={setDescripcion}
+          />
+
+          <Text style={styles.modalEtiqueta}>Monto</Text>
+          <TextInput
+            style={styles.input}
+            keyboardType="numeric"
+            placeholderTextColor="#999"
+            value={monto}
+            onChangeText={setMonto}
+          />
+
+          <TouchableOpacity style={styles.botonGuardar} onPress={handleGuardar}>
+            <Text style={styles.botonGuardarTexto}>Guardar cambios</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.botonEliminar}
+            onPress={() => onEliminar(movimiento.id)}
+          >
+            <Text style={styles.botonEliminarTexto}>Eliminar movimiento</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.botonCancelarModal} onPress={onCerrar}>
+            <Text style={styles.botonCancelarModalTexto}>Cancelar</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -168,14 +268,21 @@ function PantallaAgregar({ onGuardar, onCancelar }) {
 // ---------------------------------------------------------
 // Pantalla: Inicio
 // ---------------------------------------------------------
-function PantallaInicio({ nombre, movimientos, saldo, onIrAgregar }) {
-  const historial = [];
-  let acumulado = 0;
-  [...movimientos].reverse().forEach((m) => {
-    acumulado += m.tipo === 'ingreso' ? m.monto : -m.monto;
-    historial.push(acumulado);
-  });
-  if (historial.length === 0) historial.push(0);
+function PantallaInicio({ nombre, movimientos, saldo, onIrAgregar, onEditarMonto, onEliminar }) {
+  const [movimientoSeleccionado, setMovimientoSeleccionado] = useState(null);
+
+  const abrirModal = (item) => setMovimientoSeleccionado(item);
+  const cerrarModal = () => setMovimientoSeleccionado(null);
+
+  const guardarCambios = (id, nuevoMonto, nuevaDescripcion) => {
+    onEditarMonto(id, nuevoMonto, nuevaDescripcion);
+    cerrarModal();
+  };
+
+  const eliminarYcerrar = (id) => {
+    onEliminar(id);
+    cerrarModal();
+  };
 
   return (
     <View style={styles.container}>
@@ -201,7 +308,7 @@ function PantallaInicio({ nombre, movimientos, saldo, onIrAgregar }) {
           </Text>
         </TouchableOpacity>
 
-        <GraficaSaldo historial={historial} />
+        <GraficaSaldo movimientos={movimientos} />
 
         <Text style={styles.subtituloLista}>Movimientos recientes</Text>
       </View>
@@ -211,11 +318,13 @@ function PantallaInicio({ nombre, movimientos, saldo, onIrAgregar }) {
         data={movimientos}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
-          <View
+          <TouchableOpacity
             style={[
               styles.filaMovimiento,
               { borderLeftColor: item.tipo === 'gasto' ? '#E24A4A' : '#5FE38B' },
             ]}
+            onPress={() => abrirModal(item)}
+            activeOpacity={0.7}
           >
             <Text style={styles.filaDescripcion}>{item.descripcion}</Text>
             <Text
@@ -226,7 +335,7 @@ function PantallaInicio({ nombre, movimientos, saldo, onIrAgregar }) {
             >
               {item.tipo === 'gasto' ? '-' : '+'}${item.monto.toLocaleString('es-CO')}
             </Text>
-          </View>
+          </TouchableOpacity>
         )}
         ListEmptyComponent={
           <Text style={{ color: '#888', textAlign: 'center', marginTop: 10 }}>
@@ -257,6 +366,14 @@ function PantallaInicio({ nombre, movimientos, saldo, onIrAgregar }) {
           <Text style={styles.navTexto}>Más</Text>
         </View>
       </View>
+
+      <ModalEditarMovimiento
+        movimiento={movimientoSeleccionado}
+        visible={!!movimientoSeleccionado}
+        onCerrar={cerrarModal}
+        onGuardar={guardarCambios}
+        onEliminar={eliminarYcerrar}
+      />
     </View>
   );
 }
@@ -281,6 +398,18 @@ export default function App() {
   const agregarMovimiento = (nuevo) => {
     setMovimientos((prev) => [nuevo, ...prev]);
     setPantalla('inicio');
+  };
+
+  const editarMovimiento = (id, nuevoMonto, nuevaDescripcion) => {
+    setMovimientos((prev) =>
+      prev.map((m) =>
+        m.id === id ? { ...m, monto: nuevoMonto, descripcion: nuevaDescripcion } : m
+      )
+    );
+  };
+
+  const eliminarMovimiento = (id) => {
+    setMovimientos((prev) => prev.filter((m) => m.id !== id));
   };
 
   if (pantalla === 'bienvenida') {
@@ -309,6 +438,8 @@ export default function App() {
       movimientos={movimientos}
       saldo={saldo}
       onIrAgregar={() => setPantalla('agregar')}
+      onEditarMonto={editarMovimiento}
+      onEliminar={eliminarMovimiento}
     />
   );
 }
@@ -413,6 +544,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 15,
   },
+  leyendaPunto: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    marginRight: 8,
+  },
+  leyendaTexto: {
+    color: '#CCCCCC',
+    fontSize: 13,
+  },
+  leyendaMonto: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
   subtituloLista: {
     color: '#CCCCCC',
     fontSize: 15,
@@ -508,5 +654,63 @@ const styles = StyleSheet.create({
   tipoTexto: {
     color: '#FFFFFF',
     fontWeight: '600',
+  },
+  modalFondo: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalCaja: {
+    backgroundColor: '#171326',
+    width: '85%',
+    borderRadius: 18,
+    padding: 20,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 15,
+  },
+  modalTitulo: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  modalCerrarX: {
+    color: '#888',
+    fontSize: 18,
+  },
+  modalEtiqueta: {
+    color: '#AAAAAA',
+    fontSize: 13,
+    marginBottom: 6,
+    marginLeft: 4,
+  },
+  botonEliminar: {
+    backgroundColor: 'transparent',
+    borderWidth: 1.5,
+    borderColor: '#E24A4A',
+    width: '100%',
+    padding: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  botonEliminarTexto: {
+    color: '#E24A4A',
+    fontWeight: 'bold',
+    fontSize: 15,
+  },
+  botonCancelarModal: {
+    width: '100%',
+    padding: 12,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  botonCancelarModalTexto: {
+    color: '#888',
+    fontSize: 14,
   },
 });
