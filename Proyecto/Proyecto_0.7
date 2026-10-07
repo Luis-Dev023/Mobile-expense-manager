@@ -1,0 +1,575 @@
+import React, { useState } from 'react';
+import {
+  StyleSheet,
+  Text,
+  View,
+  TextInput,
+  FlatList,
+  Pressable,
+  SafeAreaView,
+  Modal,
+} from 'react-native';
+import { NavigationContainer } from '@react-navigation/native';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
+
+const Stack = createNativeStackNavigator();
+
+// ---------------------------------------------------------
+// PANTALLA 1: Bienvenida
+// ---------------------------------------------------------
+function PantallaBienvenida({ navigation }) {
+  const [nombre, setNombre] = useState('');
+
+  return (
+    <SafeAreaView style={styles.containerCentrado}>
+      <Text style={styles.bienvenidaTitulo}>Gestor de Gastos</Text>
+      <Text style={styles.bienvenidaSubtitulo}>
+        Ingresa tu nombre para comenzar a gestionar tus finanzas
+      </Text>
+
+      {/* Formulario controlado: useState + value + onChangeText */}
+      <TextInput
+        style={styles.input}
+        placeholder="Tu nombre"
+        placeholderTextColor="#888"
+        value={nombre}
+        onChangeText={setNombre}
+      />
+
+      {/* Uso de Pressable con estilo dinámico pressed según Sesión 6 */}
+      <Pressable
+        style={({ pressed }) => [
+          styles.botonPrincipal,
+          { opacity: pressed || !nombre.trim() ? 0.7 : 1 },
+        ]}
+        disabled={!nombre.trim()}
+        onPress={() => navigation.navigate('Inicio', { usuario: nombre.trim() })}
+      >
+        <Text style={styles.botonTexto}>Continuar</Text>
+      </Pressable>
+    </SafeAreaView>
+  );
+}
+
+// ---------------------------------------------------------
+// PANTALLA 2: Inicio / Lista con Filtro
+// ---------------------------------------------------------
+function PantallaInicio({ route, navigation }) {
+  const { usuario } = route.params; // Parámetro recibido por navigation
+
+  const [busqueda, setBusqueda] = useState('');
+  const [movimientos, setMovimientos] = useState([
+    { id: '1', tipo: 'gasto', categoria: 'Alimentación', descripcion: 'Comida rápida', monto: 12500, fecha: 'Hoy, 2:30 PM' },
+    { id: '2', tipo: 'ingreso', categoria: 'Salario', descripcion: 'Pago quincena', monto: 800000, fecha: 'Ayer' },
+    { id: '3', tipo: 'gasto', categoria: 'Transporte', descripcion: 'Pasaje TransMilenio', monto: 3000, fecha: 'Ayer' },
+  ]);
+
+  // Cálculo del saldo en tiempo real
+  const saldo = movimientos.reduce(
+    (acc, m) => acc + (m.tipo === 'ingreso' ? m.monto : -m.monto),
+    0
+  );
+
+  // Filtro controlado por el TextInput de búsqueda
+  const movimientosFiltrados = movimientos.filter((item) =>
+    item.descripcion.toLowerCase().includes(busqueda.toLowerCase()) ||
+    item.categoria.toLowerCase().includes(busqueda.toLowerCase())
+  );
+
+  const eliminarMovimiento = (id) => {
+    setMovimientos((prev) => prev.filter((m) => m.id !== id));
+  };
+
+  const agregarNuevoMovimiento = (nuevo) => {
+    setMovimientos((prev) => [nuevo, ...prev]);
+  };
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <View style={styles.paddingContenido}>
+        <Text style={styles.saludoChico}>Bienvenido,</Text>
+        <Text style={styles.saludoNombre}>{usuario}</Text>
+
+        {/* Tarjeta Resumen con Flexbox */}
+        <View style={styles.tarjetaSaldo}>
+          <Text style={styles.etiquetaSaldo}>SALDO TOTAL DISPONIBLE</Text>
+          <Text
+            style={[
+              styles.montoSaldo,
+              { color: saldo >= 0 ? '#4ADE80' : '#F87171' },
+            ]}
+          >
+            ${saldo.toLocaleString('es-CO')}
+          </Text>
+          <Text style={styles.detalleTransacciones}>
+            {movimientos.length} transacciones registradas
+          </Text>
+        </View>
+
+        {/* Campo de búsqueda controlado (Requerimiento Sesión 6) */}
+        <TextInput
+          style={styles.inputBusqueda}
+          placeholder="🔍 Buscar por nombre o categoría..."
+          placeholderTextColor="#888"
+          value={busqueda}
+          onChangeText={setBusqueda}
+        />
+
+        <View style={styles.headerLista}>
+          <Text style={styles.subtituloLista}>Movimientos recientes</Text>
+          <Pressable
+            onPress={() =>
+              navigation.navigate('NuevoMovimiento', {
+                onGuardar: agregarNuevoMovimiento,
+              })
+            }
+          >
+            <Text style={styles.linkAgregar}>+ Agregar</Text>
+          </Pressable>
+        </View>
+      </View>
+
+      {/* FlatList con renderItem y navegación a detalle con parámetros */}
+      <FlatList
+        style={styles.paddingContenido}
+        data={movimientosFiltrados}
+        keyExtractor={(item) => item.id}
+        renderItem={({ item }) => (
+          <Pressable
+            style={({ pressed }) => [
+              styles.tarjetaItem,
+              {
+                borderLeftColor: item.tipo === 'gasto' ? '#F87171' : '#4ADE80',
+                opacity: pressed ? 0.8 : 1,
+              },
+            ]}
+            onPress={() =>
+              navigation.navigate('Detalle', {
+                movimiento: item,
+                onEliminar: eliminarMovimiento,
+              })
+            }
+          >
+            <View style={{ flex: 1 }}>
+              <Text style={styles.itemDescripcion}>{item.descripcion}</Text>
+              <Text style={styles.itemCategoria}>{item.categoria}</Text>
+            </View>
+            <Text
+              style={[
+                styles.itemMonto,
+                { color: item.tipo === 'gasto' ? '#F87171' : '#4ADE80' },
+              ]}
+            >
+              {item.tipo === 'gasto' ? '-' : '+'}${item.monto.toLocaleString('es-CO')}
+            </Text>
+          </Pressable>
+        )}
+        ListEmptyComponent={
+          <Text style={styles.textoVacio}>No se encontraron movimientos</Text>
+        }
+      />
+    </SafeAreaView>
+  );
+}
+
+// ---------------------------------------------------------
+// PANTALLA 3: Detalle del Movimiento (Sesión 6)
+// ---------------------------------------------------------
+function PantallaDetalle({ route, navigation }) {
+  const { movimiento, onEliminar } = route.params;
+
+  const handleEliminar = () => {
+    onEliminar(movimiento.id);
+    navigation.goBack(); // Desapila la pantalla
+  };
+
+  return (
+    <SafeAreaView style={styles.containerCentrado}>
+      <View style={styles.cardDetalle}>
+        <Text style={styles.detalleTipo}>
+          {movimiento.tipo.toUpperCase()}
+        </Text>
+        <Text
+          style={[
+            styles.detalleMonto,
+            { color: movimiento.tipo === 'gasto' ? '#F87171' : '#4ADE80' },
+          ]}
+        >
+          {movimiento.tipo === 'gasto' ? '-' : '+'}${movimiento.monto.toLocaleString('es-CO')}
+        </Text>
+
+        <View style={styles.divisor} />
+
+        <View style={styles.filaDetalle}>
+          <Text style={styles.labelDetalle}>Concepto:</Text>
+          <Text style={styles.valorDetalle}>{movimiento.descripcion}</Text>
+        </View>
+
+        <View style={styles.filaDetalle}>
+          <Text style={styles.labelDetalle}>Categoría:</Text>
+          <Text style={styles.valorDetalle}>{movimiento.categoria}</Text>
+        </View>
+
+        <View style={styles.filaDetalle}>
+          <Text style={styles.labelDetalle}>Fecha / Registro:</Text>
+          <Text style={styles.valorDetalle}>{movimiento.fecha}</Text>
+        </View>
+
+        <Pressable
+          style={({ pressed }) => [
+            styles.botonEliminar,
+            { opacity: pressed ? 0.7 : 1 },
+          ]}
+          onPress={handleEliminar}
+        >
+          <Text style={styles.botonEliminarTexto}>Eliminar movimiento</Text>
+        </Pressable>
+      </View>
+    </SafeAreaView>
+  );
+}
+
+// ---------------------------------------------------------
+// PANTALLA 4: Agregar Movimiento (Formulario)
+// ---------------------------------------------------------
+function PantallaNuevoMovimiento({ route, navigation }) {
+  const { onGuardar } = route.params;
+  const [tipo, setTipo] = useState('gasto');
+  const [descripcion, setDescripcion] = useState('');
+  const [categoria, setCategoria] = useState('');
+  const [monto, setMonto] = useState('');
+
+  const guardar = () => {
+    const montoNum = parseFloat(monto);
+    if (!monto || isNaN(montoNum) || !descripcion.trim()) return;
+
+    onGuardar({
+      id: Date.now().toString(),
+      tipo,
+      descripcion: descripcion.trim(),
+      categoria: categoria.trim() || 'Varios',
+      monto: montoNum,
+      fecha: 'Hoy',
+    });
+
+    navigation.goBack();
+  };
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <View style={styles.paddingContenido}>
+        <View style={styles.selectorTipo}>
+          <Pressable
+            style={[styles.tipoBtn, tipo === 'gasto' && styles.tipoActivoGasto]}
+            onPress={() => setTipo('gasto')}
+          >
+            <Text style={styles.tipoTexto}>Gasto</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.tipoBtn, tipo === 'ingreso' && styles.tipoActivoIngreso]}
+            onPress={() => setTipo('ingreso')}
+          >
+            <Text style={styles.tipoTexto}>Ingreso</Text>
+          </Pressable>
+        </View>
+
+        <TextInput
+          style={styles.input}
+          placeholder="Descripción (ej. Supermercado)"
+          placeholderTextColor="#888"
+          value={descripcion}
+          onChangeText={setDescripcion}
+        />
+
+        <TextInput
+          style={styles.input}
+          placeholder="Categoría (ej. Comida, Servicios)"
+          placeholderTextColor="#888"
+          value={categoria}
+          onChangeText={setCategoria}
+        />
+
+        <TextInput
+          style={styles.input}
+          placeholder="Monto"
+          placeholderTextColor="#888"
+          keyboardType="numeric"
+          value={monto}
+          onChangeText={setMonto}
+        />
+
+        <Pressable
+          style={({ pressed }) => [
+            styles.botonPrincipal,
+            { opacity: pressed ? 0.7 : 1 },
+          ]}
+          onPress={guardar}
+        >
+          <Text style={styles.botonTexto}>Guardar Transacción</Text>
+        </Pressable>
+      </View>
+    </SafeAreaView>
+  );
+}
+
+// ---------------------------------------------------------
+// NAVEGADOR PRINCIPAL (Stack Navigator)
+// ---------------------------------------------------------
+export default function App() {
+  return (
+    <NavigationContainer>
+      <Stack.Navigator
+        screenOptions={{
+          headerStyle: { backgroundColor: '#12111A' },
+          headerTintColor: '#FFFFFF',
+          headerTitleStyle: { fontWeight: 'bold' },
+          contentStyle: { backgroundColor: '#0B0A10' },
+        }}
+      >
+        <Stack.Screen
+          name="Bienvenida"
+          component={PantallaBienvenida}
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="Inicio"
+          component={PantallaInicio}
+          options={{ headerBackVisible: false, title: 'Panel de Control' }}
+        />
+        <Stack.Screen
+          name="Detalle"
+          component={PantallaDetalle}
+          options={{ title: 'Detalle de Movimiento' }}
+        />
+        <Stack.Screen
+          name="NuevoMovimiento"
+          component={PantallaNuevoMovimiento}
+          options={{ title: 'Nuevo Registro' }}
+        />
+      </Stack.Navigator>
+    </NavigationContainer>
+  );
+}
+
+// ---------------------------------------------------------
+// ESTILOS (Flexbox y StyleSheet)
+// ---------------------------------------------------------
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#0B0A10',
+  },
+  containerCentrado: {
+    flex: 1,
+    backgroundColor: '#0B0A10',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  paddingContenido: {
+    paddingHorizontal: 20,
+  },
+  bienvenidaTitulo: {
+    color: '#FFFFFF',
+    fontSize: 28,
+    fontWeight: 'bold',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  bienvenidaSubtitulo: {
+    color: '#9CA3AF',
+    fontSize: 14,
+    textAlign: 'center',
+    marginBottom: 25,
+    maxWidth: 280,
+  },
+  saludoChico: {
+    color: '#9CA3AF',
+    fontSize: 16,
+    marginTop: 15,
+  },
+  saludoNombre: {
+    color: '#FFFFFF',
+    fontSize: 26,
+    fontWeight: 'bold',
+    marginBottom: 15,
+  },
+  tarjetaSaldo: {
+    backgroundColor: '#181622',
+    borderRadius: 16,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: '#2A2739',
+    marginBottom: 15,
+  },
+  etiquetaSaldo: {
+    color: '#9CA3AF',
+    fontSize: 12,
+    fontWeight: '600',
+    letterSpacing: 1,
+  },
+  montoSaldo: {
+    fontSize: 32,
+    fontWeight: 'bold',
+    marginVertical: 6,
+  },
+  detalleTransacciones: {
+    color: '#6B7280',
+    fontSize: 13,
+  },
+  inputBusqueda: {
+    backgroundColor: '#181622',
+    color: '#FFFFFF',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: '#2A2739',
+    marginBottom: 15,
+  },
+  headerLista: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  subtituloLista: {
+    color: '#E5E7EB',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  linkAgregar: {
+    color: '#818CF8',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  tarjetaItem: {
+    backgroundColor: '#181622',
+    borderLeftWidth: 4,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 10,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  itemDescripcion: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  itemCategoria: {
+    color: '#9CA3AF',
+    fontSize: 12,
+    marginTop: 2,
+  },
+  itemMonto: {
+    fontSize: 15,
+    fontWeight: 'bold',
+  },
+  textoVacio: {
+    color: '#6B7280',
+    textAlign: 'center',
+    marginTop: 25,
+  },
+  input: {
+    backgroundColor: '#181622',
+    color: '#FFFFFF',
+    width: '100%',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#2A2739',
+  },
+  botonPrincipal: {
+    backgroundColor: '#6366F1',
+    width: '100%',
+    padding: 15,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  botonTexto: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+    fontSize: 15,
+  },
+  selectorTipo: {
+    flexDirection: 'row',
+    marginBottom: 15,
+    gap: 10,
+  },
+  tipoBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+    backgroundColor: '#181622',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#2A2739',
+  },
+  tipoActivoGasto: {
+    backgroundColor: '#DC2626',
+    borderColor: '#DC2626',
+  },
+  tipoActivoIngreso: {
+    backgroundColor: '#16A34A',
+    borderColor: '#16A34A',
+  },
+  cardDetalle: {
+    backgroundColor: '#181622',
+    width: '100%',
+    borderRadius: 18,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: '#2A2739',
+    alignItems: 'center',
+  },
+  detalleTipo: {
+    color: '#9CA3AF',
+    fontSize: 12,
+    letterSpacing: 1.5,
+    fontWeight: 'bold',
+  },
+  detalleMonto: {
+    fontSize: 34,
+    fontWeight: 'bold',
+    marginVertical: 10,
+  },
+  divisor: {
+    height: 1,
+    backgroundColor: '#2A2739',
+    width: '100%',
+    marginVertical: 16,
+  },
+  filaDetalle: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+    marginBottom: 12,
+  },
+  labelDetalle: {
+    color: '#9CA3AF',
+    fontSize: 14,
+  },
+  valorDetalle: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  botonEliminar: {
+    marginTop: 20,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 10,
+    backgroundColor: '#451A1A',
+    borderWidth: 1,
+    borderColor: '#EF4444',
+  },
+  botonEliminarTexto: {
+    color: '#EF4444',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+});
