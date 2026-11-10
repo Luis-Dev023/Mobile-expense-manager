@@ -1,2 +1,4 @@
 # Mobile-expense-manager
-Proyecto Desarrollo de apps moviles
+Proyecto Desarrollo de Movil
+##PENDIENTES
+COnectar a firebase de google
